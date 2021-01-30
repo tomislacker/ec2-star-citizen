@@ -1,0 +1,155 @@
+##############
+# --------- #
+# vpc.yml  #
+# ------- #
+########################################################################################################################
+# What the fuck is this?
+#####
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: Temporary, single-tenant VPC for EC2 gaming
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks: []
+        #- E3005
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: General Configuration}
+        Parameters:
+          - AzIndex
+          - CidrSize
+          - CidrSubnetId
+
+    ParameterLabels:
+      AzIndex:
+        default: Which AZ should VPC Subnets and EBS Volumes be placed?
+      CidrSize:
+        default: How big should the CIDR range be?
+      CidrSubnetId:
+        default: What should the CIDR subnet ID be?
+
+Parameters:
+  AzIndex:
+    Default: 0
+    MaxValue: 5
+    MinValue: 0
+    Type: Number
+
+  CidrSize:
+    Type: Number
+    ConstraintDescription: must be 16-28
+    Default: 27
+    Description: CIDR size
+    MaxValue: 28
+    MinValue: 16
+
+  CidrSubnetId:
+    Type: String
+    AllowedPattern: '^\d+\.\d+\.\d+\.\d+$'
+    ConstraintDescription: must be valid CIDR range
+    Default: 10.17.0.0
+    Description: CIDR subnet id (ie. first address)
+
+Outputs:
+  Ipv6CidrBlocks:
+    Export:
+      Name: !Sub ${AWS::StackName}:Ipv6CidrBlocks
+    Value: !Join [',', !GetAtt Vpc.Ipv6CidrBlocks]
+
+  SubnetAAvailabilityZone:
+    Export:
+      Name: !Sub ${AWS::StackName}:SubnetAAvailabilityZone
+    Value: !GetAtt SubnetA.AvailabilityZone
+
+  SubnetAId:
+    Export:
+      Name: !Sub ${AWS::StackName}:SubnetA
+    Value: !Ref SubnetA
+
+  VpcCidrBlock:
+    Export:
+      Name: !Sub ${AWS::StackName}:CidrBlock
+    Value: !GetAtt Vpc.CidrBlock
+
+  VpcDefaultNetworkAcl:
+    Export:
+      Name: !Sub ${AWS::StackName}:DefaultNetworkAcl
+    Value: !GetAtt Vpc.DefaultNetworkAcl
+
+  VpcDefaultSecurityGroup:
+    Export:
+      Name: !Sub ${AWS::StackName}:DefaultSecurityGroup
+    Value: !GetAtt Vpc.DefaultSecurityGroup
+
+  VpcId:
+    Description: VPC Id
+    Export:
+      Name: !Sub ${AWS::StackName}:VpcId
+    Value: !Ref Vpc
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Sub ${CidrSubnetId}/${CidrSize}
+      Tags:
+        -
+          Key: Name
+          Value: !Sub ${AWS::StackName}:${AWS::Region}
+
+  Ipv6CidrBlock:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId: !Ref Vpc
+
+  Igw:
+    Type: AWS::EC2::InternetGateway
+
+  IgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref Igw
+      VpcId: !Ref Vpc
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        -
+          Key: Name
+          Value: !Sub ${AWS::StackName}:${AWS::Region}
+      VpcId: !Ref Vpc
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      #AssignIpv6AddressOnCreation: true
+      AvailabilityZone: !Select [ !Ref AzIndex, !GetAZs '' ]
+      CidrBlock: !GetAtt Vpc.CidrBlock
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          -
+            SubnetPart: '01::/64'
+            VpcPart: !Select [0, !Split ['00::/56', !Select [0, !GetAtt Vpc.Ipv6CidrBlocks]]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        -
+          Key: Name
+          Value: !Sub
+            - ${AWS::StackName}:${AWS::Region}:${Az}
+            -
+              Az: !Select [!Ref AzIndex, !GetAZs '']
+      VpcId: !Ref Vpc
+
+  SubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetA
+
+# vim:expandtab:ft=cloudformation.yaml:sts=2:sw=2:ts=2
