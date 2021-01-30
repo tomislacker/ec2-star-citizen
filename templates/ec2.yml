@@ -171,7 +171,8 @@ Resources:
         # TODO Enable volume encryption before hibernation can be enabled
         #HibernationOptions:
         #  Configured: true
-        IamInstanceProfile: !Ref IamInstanceProfile
+        IamInstanceProfile:
+          Arn: !GetAtt IamInstanceProfile.Arn
         ImageId: !Ref ImageId
         InstanceInitiatedShutdownBehavior: terminate
         InstanceMarketOptions:
