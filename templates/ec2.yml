@@ -1,0 +1,204 @@
+##############
+# --------- #
+# ec2.yml  #
+# ------- #
+########################################################################################################################
+# What the fuck is this?
+#####
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: EC2 gaming on a Windows server for fun & profit
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks: []
+        #- E3005
+
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: General Configuration}
+        Parameters:
+          - StackPrefix
+
+    ParameterLabels:
+      StackPrefix:
+        default: What is the stack prefix?
+
+Parameters:
+  Features:
+    Type: String
+    AllowedPattern: '(((NET\\-Framework)|(BITS)|(BitLocker)|(BranchCache)|(CMAK)|(Desktop\\-Experience)|(DAMC)|(Failover\\-Clustering)|(GPMC)|(Ink\\-Handwriting)|(Internet\\-Print\\-Client)|(ISNS)|(LPR\\-Port\\-Monitor)|(MSMQ)|(Multipath\\-IO)|(NLB)|(PNRP)|(qWave)|(Remote\\-Assistance)|(RDC)|(RPC\\-over\\-HTTP\\-Proxy)|(Simple\\-TCPIP)|(SMTP\\-Server)|(SNMP\\-Services)|(Storage\\-Mgr\\-SANS)|(Subsystem\\-UNIX\\-Apps)|(Telnet\\-Client)|(Telnet\\-Server)|(TFTP\\-Client)|(Biometric\\-Framework)|(Windows\\-Internal\\-DB)|(PowerShell\\-ISE)|(Backup\\-Features)|(Migration)|(WSRM)|(TIFF\\-IFilter)|(WinRM\\-IIS\\-Ext)|(WINS\\-Server)|(Wireless\\-Networking)|(XPS\\-Viewer))( ((NET\\-Framework)|(BITS)|(BitLocker)|(BranchCache)|(CMAK)|(Desktop\\-Experience)|(DAMC)|(Failover\\-Clustering)|(GPMC)|(Ink\\-Handwriting)|(Internet\\-Print\\-Client)|(ISNS)|(LPR\\-Port\\-Monitor)|(MSMQ)|(Multipath\\-IO)|(NLB)|(PNRP)|(qWave)|(Remote\\-Assistance)|(RDC)|(RPC\\-over\\-HTTP\\-Proxy)|(Simple\\-TCPIP)|(SMTP\\-Server)|(SNMP\\-Services)|(Storage\\-Mgr\\-SANS)|(Subsystem\\-UNIX\\-Apps)|(Telnet\\-Client)|(Telnet\\-Server)|(TFTP\\-Client)|(Biometric\\-Framework)|(Windows\\-Internal\\-DB)|(PowerShell\\-ISE)|(Backup\\-Features)|(Migration)|(WSRM)|(TIFF\\-IFilter)|(WinRM\\-IIS\\-Ext)|(WINS\\-Server)|(Wireless\\-Networking)|(XPS\\-Viewer)))*( )*)|(None)'
+    Default: None
+    Description: A SPACE seperated list of features that you want to enable on this instance
+
+  IamPath:
+    Type: String
+    Default: /
+
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0f5761c546ea1265a
+
+  InstanceType:
+    Type: String
+    Default: t3.xlarge
+
+  Roles:
+    Type: String
+    AllowedPattern: '(((AD\\-Certificate)|(AD\\-Domain\\-Services)|(ADLDS)|(DHCP)|(DNS)|(Fax)|(File\\-Services)|(NPAS)|(Print\\-Services)|(Web\\-Server)|(WDS))( ((AD\\-Certificate)|(AD\\-Domain\\-Services)|(ADLDS)|(DHCP)|(DNS)|(Fax)|(File\\-Services)|(NPAS)|(Print\\-Services)|(Web\\-Server)|(WDS)))*)|(None)'
+    Default: None
+    Description: A SPACE seperated list of roles that you want to enable on this instance
+  
+  StackPrefix:
+    Type: String
+
+  UserIp:
+    Type: String
+
+Outputs: {}
+
+Conditions: {}
+
+Resources:
+  IamInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 'ec2.amazonaws.com'
+            Action: sts:AssumeRole
+      Description: !Ref AWS::StackName
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Path: !Ref IamPath
+
+
+  IamInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Ref IamInstanceRole
+      Path: !Ref IamPath
+      Roles: [!Ref IamInstanceRole]
+
+#  InstanceWaitHandle:
+#    Type: AWS::CloudFormation::WaitConditionHandle
+#
+#  InstanceWaitCondition:
+#    Type: AWS::CloudFormation::WaitCondition
+#    DependsOn: Instance
+#    Properties:
+#      Handle: !Ref InstanceWaitHandle
+#      Timeout: 1800
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Ref AWS::StackName
+      SecurityGroupEgress: []
+      SecurityGroupIngress:
+        -
+          IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: !Sub ${UserIp}/32
+      VpcId:
+        Fn::ImportValue: !Sub ${StackPrefix}-vpc:VpcId
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          files:
+            'C:\\cfn\\cfn-hup.conf':
+              content: !Sub |
+                [main]
+                stack=${AWS::StackName}
+                region=${AWS::Region}
+            'C:\\cfn\\hooks.d\\cfn-auto-reloader.conf':
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.WindowsServer.Metadata.AWS::CloudFormation::Init
+                action=cfn-init.exe -v -s ${AWS::StackName} -r Instance --region ${AWS::Region}
+          commands:
+            01_install_roles:
+              command: !Sub |
+                if not "None" EQU "${Roles}" (servermanagercmd -install ${Roles} -restart)
+            02_install_features:
+              command: !Sub |
+                if not "None" EQU "${Features}" (servermanagercmd -install ${Features} -restart)
+          services:
+            windows:
+              cfn-hup:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - 'C:\\cfn\\cfn-hup.conf'
+                  - 'C:\\cfn\\hooks.d\\cfn-auto-reloader.conf'
+        # https://aws.amazon.com/premiumsupport/knowledge-center/cloudformation-drive-letters-windows/
+        #diskInit:
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      SubnetId:
+        Fn::ImportValue: !Sub ${StackPrefix}-vpc:SubnetA
+       
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            # Invalid Property Resources/LaunchTemplate/Properties/LaunchTemplateData/IamInstanceProfile/Ref
+            - E3002
+    Properties:
+      LaunchTemplateData:
+        # TODO Actually use this disk
+        #BlockDeviceMappings:
+        #  -
+        #    DeviceName: xvdg
+        #    Ebs:
+        #      # Star Citizen requires ~65GB
+        #      # Ref: https://support.robertsspaceindustries.com/hc/en-us/articles/360042417374-Star-Citizen-Minimum-System-Requirements
+        #      VolumeSize: 80
+        #ElasticGpuSpecifications
+        # TODO Enable volume encryption before hibernation can be enabled
+        #HibernationOptions:
+        #  Configured: true
+        IamInstanceProfile: !Ref IamInstanceProfile
+        ImageId: !Ref ImageId
+        InstanceInitiatedShutdownBehavior: terminate
+        InstanceMarketOptions:
+          MarketType: spot
+          SpotOptions:
+            InstanceInterruptionBehavior: stop
+            SpotInstanceType: one-time
+        InstanceType: !Ref InstanceType
+        SecurityGroupIds:
+          - !GetAtt InstanceSecurityGroup.GroupId
+        TagSpecifications:
+          -
+            ResourceType: instance
+            Tags:
+              -
+                Key: Name
+                Value: !Sub
+                  - ${AWS::StackName}:${AWS::Region}:${Subnet}
+                  -
+                    Subnet:
+                      Fn::ImportValue: !Sub ${StackPrefix}-vpc:SubnetA
+
+        UserData:
+          Fn::Base64: !Sub |
+            <script>
+            cfn-init.exe -v -s ${AWS::StackId} -r Instance --region ${AWS::Region}
+            </script>
+      LaunchTemplateName: !Ref AWS::StackName
+
+# vim:expandtab:ft=cloudformation.yaml:sts=2:sw=2:ts=2
