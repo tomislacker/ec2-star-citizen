@@ -29,16 +29,16 @@ clean-aws-ec2 :
 		--stack-name $(STACK_PREFIX)-ec2 \
 		|| true # Ignore failures, assume maybe it's already gone
 
-.PHONY        : clean-aws-vpc
-clean-aws-vpc : clean-aws-ec2
+.PHONY               : clean-aws-persistentvpc
+clean-aws-persistent : clean-aws-ec2
 	@echo
-	@echo Removing CFN stack $(STACK_PREFIX)-vc
+	@echo Removing CFN stack $(STACK_PREFIX)-persistent
 	aws cloudformation delete-stack \
-		--stack-name $(STACK_PREFIX)-vpc \
+		--stack-name $(STACK_PREFIX)-persistent \
 		|| true # Ignore failures, assume maybe it's already gone
 
 .PHONY    : clean-aws
-clean-aws : | clean-aws-vpc
+clean-aws : | clean-aws-persistent
 	@echo $@ complete
 
 .PHONY : ec2
@@ -58,23 +58,18 @@ ec2    :
 			'Purpose=$(STACK_PREFIX)' \
 			'Hash=$(HASH)' \
 		--template-file templates/$@.yml
-	@echo
-	@echo TODO: Wait for stack deletion
-	@echo
 
-.PHONY : vpc
-vpc    :
+.PHONY     : persistent
+persistent :
 	@echo
 	@echo Deploying $(STACK_PREFIX)-$@ ...
 	aws cloudformation deploy \
 		--capabilities \
 			CAPABILITY_AUTO_EXPAND \
 			CAPABILITY_IAM \
+			CAPABILITY_NAMED_IAM \
 		--stack-name $(STACK_PREFIX)-$@ \
 		--tags \
 			'Purpose=$(STACK_PREFIX)' \
 			'Hash=$(HASH)' \
 		--template-file templates/$@.yml
-	@echo
-	@echo TODO: Wait for stack deletion
-	@echo
